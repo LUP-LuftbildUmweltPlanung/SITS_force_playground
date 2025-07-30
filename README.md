@@ -1,6 +1,7 @@
 # SITS Force Playground
 
-Code for playing around with [FORCE Time Series Framework](https://force-eo.readthedocs.io/en/latest/index.html).
+Code for playing around with [FORCE Time Series Framework](https://force-eo.readthedocs.io/en/latest/index.html). The code works with the latest FORCE version 
+3.8.01.
 
 
 ## 1. Installing
