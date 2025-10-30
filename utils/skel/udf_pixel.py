@@ -1,5 +1,8 @@
 import numpy as np
-
+import time
+from datetime import datetime, timedelta, date
+# some global config variables
+start = date.fromisoformat('1970-01-01')
 
 def forcepy_init(dates, sensors, bandnames):
     """
@@ -7,8 +10,8 @@ def forcepy_init(dates, sensors, bandnames):
     sensors:   numpy.ndarray[nDates](str)
     bandnames: numpy.ndarray[nBands](str)
     """
-    print(dates)
-    return dates
+
+    return [f'{(start+timedelta(days=int(dat))).year}{(start+timedelta(days=int(dat))).month:02d}{(start+timedelta(days=int(dat))).day:02d}_{sens.decode("utf-8")}' for dat, sens in zip(dates, sensors)]
 
 
 def forcepy_pixel(inarray, outarray, dates, sensors, bandnames, nodata, nproc):
@@ -23,32 +26,65 @@ def forcepy_pixel(inarray, outarray, dates, sensors, bandnames, nodata, nproc):
     Write results into outarray.
     """
 
+    inarray = inarray.astype(np.float32)
     inarray = inarray[:, :, 0, 0]
+    invalid = inarray == nodata  ## bool mask values
+    ## bool qai masks
+
     valid = np.where(inarray[:, 0] != nodata)[0]  # skip no data; just check first band
-    #print(valid)
+
     if len(valid) == 0:
         return
+    inarray[invalid] = np.nan
 
-    print(len(dates))
-    import time
-    time.sleep(1000)
-    # prepare data
-    #inarray = inarray[:, :, 0, 0]
-    #inarray[inarray != nodata] = 0
-    #print(inarray[valid])
-    # band indices
+    #BANDS
     green = np.argwhere(bandnames == b'GREEN')[0][0]
+    #blue = np.argwhere(bandnames == b'BLUE')[0][0]
     red = np.argwhere(bandnames == b'RED')[0][0]
+    # re1 = np.argwhere(bandnames == b'REDEDGE1')[0][0]
+    # re2 = np.argwhere(bandnames == b'REDEDGE2')[0][0]
     nir = np.argwhere(bandnames == b'NIR')[0][0]
+    #bnir = np.argwhere(bandnames == b'BROADNIR')[0][0]
     swir1 = np.argwhere(bandnames == b'SWIR1')[0][0]
+    #swir2 = np.argwhere(bandnames == b'SWIR2')[0][0]
 
-    # calculate DSWI ((Band 8 (NIR) + Band 3 (Green)) / (Band 11 (SWIR1) + Band 4 (Red)))
-    dswi = (inarray[:,nir] + inarray[:,green]) / (inarray[:,swir1] + inarray[:,red])
-    print(dswi)
-    print(dates)
-    #
-    # # store results
-    #valid = np.isfinite(dswi)
-    #outarray[valid] = dswi[valid]
-    #outarray[:, :, 0, 0]=dswi[:, 0]
-    outarray=dswi*100
+    vals = inarray[valid, :]
+
+    #INDEXES
+
+    # dswi = (vals[:,nir] + vals[:,green]) / (vals[:,swir1] + vals[:,red])
+    # # NBR = (BNIR - SWIR2) / (BNIR + SWIR2)
+    # nbr = (vals[:, bnir] - vals[:, swir2]) / (vals[:, bnir] + vals[:, swir2])
+    # # NDVI = (BNIR - RED) / (BNIR + RED)
+    # ndvi = (vals[:, bnir] - vals[:, red]) / (vals[:, bnir] + vals[:, red])
+    # # ARI = BNIR * ((1 / GREEN) - (1 / RE1))
+    # ari = vals[:, bnir] * ((1 / vals[:, green]) - (1 / vals[:, re1]))
+    # # CRI = (1 / BLUE) - (1 / GREEN)
+    # cri = (1 / vals[:, blue]) - (1 / vals[:, green])
+    # # RENDVI1 = (RE1 - RED) / (RE1 + RED)
+    # rendvi1 = (vals[:, re1] - vals[:, red]) / (vals[:, re1] + vals[:, red])
+    # # RENDVI2 = (RE2 - RED) / (RE2 + RED)
+    # rendvi2 = (vals[:, re2] - vals[:, red]) / (vals[:, re2] + vals[:, red])
+    # # DSWI = (BNIR + GREEN) / (SWIR1 + RED)
+    #dswi = (vals[:, bnir] + vals[:, green]) / (vals[:, swir1] + vals[:, red])
+    # # MSI = SWIR1 / BNIR
+    # msi = vals[:, swir1] / vals[:, bnir]
+    # # NDWI = (BNIR - SWIR1) / (BNIR + SWIR1)
+    # ndwi = (vals[:, bnir] - vals[:, swir1]) / (vals[:, bnir] + vals[:, swir1])
+    # # VMI = ((BNIR + 0.1) - (SWIR2 + 0.02)) / ((BNIR + 0.1) + (SWIR2 + 0.02))
+    # vmi = ((vals[:, bnir] + 0.1) - (vals[:, swir2] + 0.02)) / ((vals[:, bnir] + 0.1) + (vals[:, swir2] + 0.02))
+    # # CCCI = ((BNIR - RE1) / (BNIR + RE1)) / ((BNIR - RED) / (BNIR + RED))
+    # ccci = ((vals[:, bnir] - vals[:, re1]) / (vals[:, bnir] + vals[:, re1])) / (
+    #             (vals[:, bnir] - vals[:, red]) / (vals[:, bnir] + vals[:, red]))
+
+
+    #ndvi = (vals[:, nir] - vals[:, red]) / (vals[:, nir] + vals[:, red])
+    dswi = (vals[:,nir] + vals[:,green]) / (vals[:,swir1] + vals[:,red])
+
+    # # calculate NDTI ((Band 11(SWIR1) - Band 12(SWIR2)) / Band 11(SWIR1) + Band 12(SWIR2)))
+    #ndti = (vals[:, swir1] - vals[:, swir2]) / (vals[:, swir1] + vals[:, swir2])
+    #ndti[np.isnan(ndti)] = nodata
+
+
+    #outarray[valid] = ndti * 10000
+    outarray[valid] = dswi * 100

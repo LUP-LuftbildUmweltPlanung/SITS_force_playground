@@ -34,24 +34,27 @@ def forcepy_init(dates, sensors, bandnames):
 # define all three models from the paper
 def objective_simple(x, a0, a1, b1, c1):
     return a0 + a1 * np.cos(2 * np.pi / 365 * x) + b1 * np.sin(2 * np.pi / 365 * x) + c1 * x
-
-
 def objective_advanced(x, a0, a1, b1, c1, a2, b2):
     return objective_simple(x, a0, a1, b1, c1) + a2 * np.cos(4 * np.pi / 365 * x) + b2 * np.sin(4 * np.pi / 365 * x)
-
-
 def objective_full(x, a0, a1, b1, c1, a2, b2, a3, b3):
     return objective_advanced(x, a0, a1, b1, c1, a2, b2) + a3 * np.cos(6 * np.pi / 365 * x) + b3 * np.sin(
         6 * np.pi / 365 * x)
 
+def objective_simple_notrend(x, a0, a1, b1):
+    return a0 + a1 * np.cos(2 * np.pi / 365 * x) + b1 * np.sin(2 * np.pi / 365 * x)
+def objective_advanced_notrend(x, a0, a1, b1, a2, b2):
+    return objective_simple_notrend(x, a0, a1, b1) + a2 * np.cos(4 * np.pi / 365 * x) + b2 * np.sin(4 * np.pi / 365 * x)
+def objective_full_notrend(x, a0, a1, b1, a2, b2, a3, b3):
+    return objective_advanced_notrend(x, a0, a1, b1, a2, b2) + a3 * np.cos(6 * np.pi / 365 * x) + b3 * np.sin(
+        6 * np.pi / 365 * x)
 
 # - choose which model to use
-objective = objective_full
+objective = objective_full_notrend
 
 def forcepy_pixel(inarray, outarray, dates, sensors, bandnames, nodata, nproc):
     """
     inarray:   numpy.ndarray[nDates, nBands, nrows, ncols](Int16)
-    outarray:  numpy.ndarray[nOutBands](Int16) initialized with no data values
+    outarray:  numpy.ndarray[nOutBands](Int16) initialized with no vitalitat_3cities_data values
     dates:     numpy.ndarray[nDates](int) days since epoch (1970-01-01)
     sensors:   numpy.ndarray[nDates](str)
     bandnames: numpy.ndarray[nBands](str)
@@ -63,7 +66,7 @@ def forcepy_pixel(inarray, outarray, dates, sensors, bandnames, nodata, nproc):
     inarray = inarray.astype(np.float32)
     inarray = inarray[:, :, 0, 0]
     invalid = inarray == nodata
-    valid = np.where(inarray[:, 0] != nodata)[0]  # skip no data; just check first band
+    valid = np.where(inarray[:, 0] != nodata)[0]  # skip no vitalitat_3cities_data; just check first band
     # print(valid)
     if len(valid) == 0:
         return
@@ -71,32 +74,44 @@ def forcepy_pixel(inarray, outarray, dates, sensors, bandnames, nodata, nproc):
     #print(len(dates))
 
 
-    # prepare data
+    # prepare vitalitat_3cities_data
     #inarray = inarray[:, :, 0, 0]
     #inarray[inarray != nodata] = 0
     #print(inarray[valid])
     # band indices
     green = np.argwhere(bandnames == b'GREEN')[0][0]
+    blue = np.argwhere(bandnames == b'BLUE')[0][0]
     red = np.argwhere(bandnames == b'RED')[0][0]
+    #re1 = np.argwhere(bandnames == b'REDEDGE1')[0][0]
+    #re2 = np.argwhere(bandnames == b'REDEDGE2')[0][0]
     nir = np.argwhere(bandnames == b'NIR')[0][0]
+    bnir = np.argwhere(bandnames == b'BROADNIR')[0][0]
     swir1 = np.argwhere(bandnames == b'SWIR1')[0][0]
+    #swir2 = np.argwhere(bandnames == b'SWIR2')[0][0]
     #print(bandnames)
-    # calculate DSWI ((Band 8 (NIR) + Band 3 (Green)) / (Band 11 (SWIR1) + Band 4 (Red)))
-    dswi = (inarray[:,nir] + inarray[:,green]) / (inarray[:,swir1] + inarray[:,red])
-    #dswi = np.sum(inarray[:, [green, nir]], axis=1) / np.sum(inarray[:, [red, swir1]], axis=1)
-    #dswi = np.subtract(inarray[:, nir],inarray[:, swir1]) / np.sum(inarray[:, [nir, swir1]], axis=1)
-    #dswi = inarray[:,green]
-    #print(dswi)
-    #print(dates)
-    #print(len(dswi))
-
-    #print(np.array(len(dates)))
-
-    #print(idx)
-    #time.sleep(1000)
-    #valid = valid[idx]
-    #dswi = dswi[idx]
-
+    # NBR = (BNIR - SWIR2) / (BNIR + SWIR2)
+    # nbr = (inarray[:, bnir] - inarray[:, swir2]) / (inarray[:, bnir] + inarray[:, swir2])
+    # # NDVI = (BNIR - RED) / (BNIR + RED)
+    # ndvi = (inarray[:, bnir] - inarray[:, red]) / (inarray[:, bnir] + inarray[:, red])
+    # # ARI = BNIR * ((1 / GREEN) - (1 / RE1))
+    # ari = inarray[:, bnir] * ((1 / inarray[:, green]) - (1 / inarray[:, re1]))
+    # # CRI = (1 / BLUE) - (1 / GREEN)
+    # cri = (1 / inarray[:, blue]) - (1 / inarray[:, green])
+    # # RENDVI1 = (RE1 - RED) / (RE1 + RED)
+    # rendvi1 = (inarray[:, re1] - inarray[:, red]) / (inarray[:, re1] + inarray[:, red])
+    # # RENDVI2 = (RE2 - RED) / (RE2 + RED)
+    # rendvi2 = (inarray[:, re2] - inarray[:, red]) / (inarray[:, re2] + inarray[:, red])
+    # # DSWI = (BNIR + GREEN) / (SWIR1 + RED)
+    dswi = (inarray[:, bnir] + inarray[:, green]) / (inarray[:, swir1] + inarray[:, red])
+    # # MSI = SWIR1 / BNIR
+    # msi = inarray[:, swir1] / inarray[:, bnir]
+    # # NDWI = (BNIR - SWIR1) / (BNIR + SWIR1)
+    # ndwi = (inarray[:, bnir] - inarray[:, swir1]) / (inarray[:, bnir] + inarray[:, swir1])
+    # # VMI = ((BNIR + 0.1) - (SWIR2 + 0.02)) / ((BNIR + 0.1) + (SWIR2 + 0.02))
+    # vmi = ((inarray[:, bnir] + 0.1) - (inarray[:, swir2] + 0.02)) / ((inarray[:, bnir] + 0.1) + (inarray[:, swir2] + 0.02))
+    # # CCCI = ((BNIR - RE1) / (BNIR + RE1)) / ((BNIR - RED) / (BNIR + RED))
+    # ccci = ((inarray[:, bnir] - inarray[:, re1]) / (inarray[:, bnir] + inarray[:, re1])) / (
+    #         (inarray[:, bnir] - inarray[:, red]) / (inarray[:, bnir] + inarray[:, red]))
 
     dswi = dswi[idx]
     dates = dates[idx]
