@@ -69,7 +69,7 @@ def force_class(project_name, force_dir, local_dir, base_path, aois, hold):
 
         shutil.copy(f"{base_path_script}/utils/skel/force_cube_sceleton/datacube-definition.prj",f"{base_path}/process/temp/{project_name}/FORCE/{basename}/datacube-definition.prj")
 
-        cmd = f'sudo docker run -v {local_dir} -v {force_dir} -u "$(id -u):$(id -g)" davidfrantz/force ' \
+        cmd = f'sudo docker run -v {local_dir} -v {force_dir} -u "$(id -u):$(id -g)" davidfrantz/force:latest ' \
                f'force-tile-extent {aoi} -d {base_path_script}/utils/skel/force_cube_sceleton -a {base_path}/process/temp/{project_name}/FORCE/{basename}/tile_extent.txt'
 
         if hold == True:
@@ -85,7 +85,7 @@ def force_class(project_name, force_dir, local_dir, base_path, aois, hold):
         #subprocess.run(['sudo', 'chmod', '-R', '777', f"{mask_folder}"])
 
         shutil.copy(f"{base_path_script}/utils/skel/force_cube_sceleton/datacube-definition.prj",f"{base_path}/process/temp/_mask/{project_name}/{basename}/datacube-definition.prj")
-        cmd = f'sudo docker run -v {local_dir} -u "$(id -u):$(id -g)" davidfrantz/force ' \
+        cmd = f'sudo docker run -v {local_dir} -u "$(id -u):$(id -g)" davidfrantz/force:latest ' \
               f"force-cube -o {base_path}/process/temp/_mask/{project_name}/{basename} " \
               f"{aoi}"
 
@@ -96,7 +96,7 @@ def force_class(project_name, force_dir, local_dir, base_path, aois, hold):
         #subprocess.run(['sudo','chmod','-R','777',f"{mask_folder}/{project_name}/{basename}"])
 
         ###mask mosaic
-        cmd = f'sudo docker run -v {local_dir} -u "$(id -u):$(id -g)" davidfrantz/force ' \
+        cmd = f'sudo docker run -v {local_dir} -u "$(id -u):$(id -g)" davidfrantz/force:latest ' \
               f"force-mosaic {base_path}/process/temp/_mask/{project_name}/{basename}"
 
         if hold == True:
@@ -167,7 +167,7 @@ def force_class_udf(project_name, force_dir, local_dir, base_path, aois, hold):
 
         print(f"Checking AOI path: {aoi} -> Exists: {os.path.exists(aoi)}")
 
-        cmd = f'sudo docker run -v {local_dir} -v {force_dir} -u "$(id -u):$(id -g)" davidfrantz/force ' \
+        cmd = f'sudo docker run -v {local_dir} -v {force_dir} -u "$(id -u):$(id -g)" davidfrantz/force:latest ' \
               f'force-tile-extent  {aoi} -d {base_path_script}/utils/skel/force_cube_sceleton -a {base_path}/process/temp/{project_name}/FORCE/{basename}/tile_extent.txt'
 
         if hold == True:
@@ -184,7 +184,7 @@ def force_class_udf(project_name, force_dir, local_dir, base_path, aois, hold):
 
         shutil.copy(f"{base_path_script}/utils/skel/force_cube_sceleton/datacube-definition.prj",
                     f"{base_path}/process/temp/_mask/{project_name}/{basename}/datacube-definition.prj")
-        cmd = f'sudo docker run -v {local_dir} -u "$(id -u):$(id -g)" davidfrantz/force ' \
+        cmd = f'sudo docker run -v {local_dir} -u "$(id -u):$(id -g)" davidfrantz/force:latest ' \
               f"force-cube -o {base_path}/process/temp/_mask/{project_name}/{basename} " \
               f"{aoi}"
 
@@ -195,7 +195,7 @@ def force_class_udf(project_name, force_dir, local_dir, base_path, aois, hold):
         # subprocess.run(['sudo','chmod','-R','777',f"{mask_folder}/{project_name}/{basename}"])
 
         ###mask mosaic
-        cmd = f'sudo docker run -v {local_dir} -u "$(id -u):$(id -g)" davidfrantz/force ' \
+        cmd = f'sudo docker run -v {local_dir} -u "$(id -u):$(id -g)" davidfrantz/force:latest ' \
               f"force-mosaic {base_path}/process/temp/_mask/{project_name}/{basename}"
 
         if hold == True:
@@ -233,10 +233,10 @@ def force_class_udf(project_name, force_dir, local_dir, base_path, aois, hold):
             # PROCESSING EXTENT AND RESOLUTION
             f'X_TILE_RANGE = 0 0': f'X_TILE_RANGE = {X_TILE_RANGE}',
             f'Y_TILE_RANGE = 0 0': f'Y_TILE_RANGE = {Y_TILE_RANGE}',
+            f"FILE_PYTHON = NULL": f"FILE_PYTHON = {base_path}/process/temp/{project_name}/FORCE/{basename}/UDF_pixel.py",
         }
         # Replace parameters in the file
         replace_parameters(f"{base_path}/process/temp/{project_name}/FORCE/{basename}/tsa_UDF.prm", replacements)
 
     endzeit = time.time()
     print("FORCE-Processing beendet nach " + str((endzeit - startzeit) / 60) + " Minuten")
-
