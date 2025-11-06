@@ -45,7 +45,7 @@ def forcepy_pixel(inarray, outarray, dates, sensors, bandnames, nodata, nproc):
     #print(inarray[valid])
     # band indices
     #print(start+timedelta(days=int(dates[0])))
-    #print(dates[0])
+    #print(dates[0]) .
     #time.sleep(1000)
     green = np.argwhere(bandnames == b'GREEN')[0][0]
     blue = np.argwhere(bandnames == b'BLUE')[0][0]
