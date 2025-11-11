@@ -13,3 +13,5 @@ optuna==3.5.0
 optuna-dashboard==0.14.0
 cmaes==0.10.0
 rasterstats==0.19.0
+fastnanquantile==0.0.2
+pytest==8.4.1
