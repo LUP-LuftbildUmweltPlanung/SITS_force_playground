@@ -1,0 +1,40 @@
+project:
+  name: project_name
+  base_path: /uge_mount/Freddy/force_playground
+
+force:
+  image: davidfrantz/force:latest
+  force_dir: /force:/force
+  local_dir: /uge_mount:/uge_mount
+
+processing:
+  mode: TSA # TSA or UDF. If UDF a FILE_PYTHON must be provided in parameters
+  execute: true
+  mosaic: true
+  hold: false
+
+aoi:
+  files:
+    - /uge_mount/Freddy/data/aoi/test.shp
+
+parameters:
+  DATE_RANGE: 2020-08-01 2020-08-31 # Format: YYYY-MM-DD
+  DOY_RANGE: 1 365 # DOY range for filtering the time extent. Day-of-Years that are outside the given interval will be ignored.
+  INDEX: RED GREEN BLUE
+  SENSORS: SEN2A SEN2B SEN2C # LND08 LND09 SEN2A SEN2B SEN2C
+  TARGET_SENSOR: SEN2L # SEN2L (for Sentinel only) OR LNDLG (for Landsat (and Sentinel))
+  SPECTRAL_ADJUST: FALSE # TRUE if Sentinel and Landsat is used
+  RESOLUTION: 10 # 30 if working with Landsat
+
+  FILE_PYTHON: /uge_mount/Freddy/force_playground/SITS_force_playground/utils/templates/median_2.py # Path to UDF. Only used if mode: UDF
+
+  # Advanced parameters
+  STREAMING: TRUE # for faster computation. However, this can cause error messages when working with UDFs
+  OUTPUT_SUBFOLDERS: TRUE
+  CHUNK_SIZE: 1000 1000
+  ABOVE_NOISE: 3
+  BELOW_NOISE: 1
+  NTHREAD_READ: 10
+  NTHREAD_COMPUTE: 4
+  NTHREAD_WRITE: 10
+
