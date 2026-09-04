@@ -3,6 +3,14 @@ import subprocess
 import glob
 from collections import defaultdict
 import rasterio
+import yaml
+
+
+def load_config(config_path):
+    with open(config_path, "r") as file:
+        config = yaml.safe_load(file)
+    return config
+
 
 def create_folder_structure(base_path):
     # Define the folder structure
@@ -22,18 +30,6 @@ def create_folder_structure(base_path):
             print(f"Created folder: {path}")
         else:
             print(f"Folder already exists: {path}")
-
-
-def execute_cmd(params_path, hold, local_dir, force_dir):
-    cmd = f'sudo docker run -v {local_dir} -v {force_dir} -u "$(id -u):$(id -g)" davidfrantz/force ' \
-          "force-higher-level " \
-          f"{params_path}"
-
-
-    if hold == True:
-        subprocess.run(['xterm', '-hold', '-e', cmd])
-    else:
-        subprocess.run(['xterm','-e', cmd])
 
 
 def mosaic_rasters(input_files, output_filename, band_descriptions=None):
@@ -73,15 +69,23 @@ def mosaic_rasters(input_files, output_filename, band_descriptions=None):
                     dst.set_band_description(i, desc)
 
 
-def mosaicing(base_path, project_name, aois):
+def mosaicing(config):
+    base_path = config['project']['base_path']
+    project_name = config['project']['name']
+    aois = config['aoi']['files']
     temp_folder = base_path + "/process/temp"
     proc_folder = base_path + "/process/results/" + project_name
     os.makedirs(proc_folder, exist_ok=True)
+    if config['processing']['mode'].upper() == "UDF":
+        tif_folder = "PYP"
+    else:
+        tif_folder = "TSS"
 
     for aoi in aois:
         aoi_name = os.path.basename(aoi)
         # colect all tif files
-        file_lst = glob.glob(f"{temp_folder}/{project_name}/FORCE/{aoi_name}/tiles_tss/X*/*.tif")
+        file_lst = glob.glob(f"{temp_folder}/{project_name}/FORCE/{aoi_name}/tiles_tss/X*/{tif_folder}/*.tif")
+        print(file_lst)
         mosaics = defaultdict(list)
         for f in file_lst:
             tif_name = os.path.basename(f)
