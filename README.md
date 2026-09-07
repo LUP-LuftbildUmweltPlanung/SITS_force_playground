@@ -27,11 +27,9 @@ The script is based on the following folder structure:
 
 <img src="img/folderstructure.png">
 
-The script should help to use FORCE-Framework path handling. The functions are explained below:
-- _**create_folder_structure**_: Checking / creating the folder structure.
-- _**force_class**_: Creates a simple parameter file with some basic information filled.
-- _**force_class_udf**_: Creates a parameter file to use your User defined function formula/script to obtain your own index.
-- _**execute_cmd**_: Executes the parameter file given by path.
+The script should help to use FORCE-Framework. Use as follows: 
+- adjust the parameters in the config.yaml file
+- run force_process.py file
 
 _**Note:**_ As a thumb rule, always double-check your parameter files before executing them. 
 There are many parameters that need to be set according to your data and needs.
