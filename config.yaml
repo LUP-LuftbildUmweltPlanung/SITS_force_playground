@@ -9,9 +9,9 @@ force:
 
 processing:
   mode: TSA # TSA or UDF. If UDF a FILE_PYTHON must be provided in parameters
-  execute: true
-  mosaic: true
-  hold: false
+  execute: true # set to false if only parameter file should be created
+  mosaic: true 
+  hold: false # for debug purpose only
 
 aoi:
   files:
@@ -20,7 +20,7 @@ aoi:
 parameters:
   DATE_RANGE: 2020-08-01 2020-08-31 # Format: YYYY-MM-DD
   DOY_RANGE: 1 365 # DOY range for filtering the time extent. Day-of-Years that are outside the given interval will be ignored.
-  INDEX: RED GREEN BLUE
+  INDEX: RED GREEN BLUE # BLUE GREEN RED NIR SWIR1 SWIR2 RE1 RE2 RE3 NDVI EVI SAVI SARVI ARVI kNDVI NDRE1 NDRE2 CIre NDWI MNDWI NDMI NBR NDTI NDBI NDSI TC-BRIGHT TC-GREEN TC-WET TC-DI SMA
   SENSORS: SEN2A SEN2B SEN2C # LND08 LND09 SEN2A SEN2B SEN2C
   TARGET_SENSOR: SEN2L # SEN2L (for Sentinel only) OR LNDLG (for Landsat (and Sentinel))
   SPECTRAL_ADJUST: FALSE # TRUE if Sentinel and Landsat is used
