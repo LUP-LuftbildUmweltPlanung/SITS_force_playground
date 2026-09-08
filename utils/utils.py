@@ -32,8 +32,16 @@ def create_folder_structure(base_path):
             print(f"Folder already exists: {path}")
 
 
-def mosaic_rasters(input_files, output_filename, band_descriptions=None):
+def mosaic_rasters(input_files, output_filename):
     vrt_path = output_filename.replace(".tif", "_tmp.vrt")
+
+    # read band descriptions from source files
+    band_descriptions = []
+
+    for f in input_files:
+        with rasterio.open(f) as src:
+            for desc in src.descriptions:
+                band_descriptions.append(desc if desc else os.path.basename(f))
 
     # Built VRT
     subprocess.run([
@@ -62,11 +70,9 @@ def mosaic_rasters(input_files, output_filename, band_descriptions=None):
     os.remove(vrt_path)
 
     # Set band descriptions
-    if band_descriptions:
-        with rasterio.open(output_filename, "r+") as dst:
-            for i, desc in enumerate(band_descriptions, start=1):
-                if desc:
-                    dst.set_band_description(i, desc)
+    with rasterio.open(output_filename, "r+") as dst:
+        for i, desc in enumerate(band_descriptions, start=1):
+            dst.set_band_description(i, desc)
 
 
 def mosaicing(config):
