@@ -1,190 +1,211 @@
 import os
+import re
+import shlex
+import shutil
 import subprocess
 import time
-import shutil
+from pathlib import Path
+
 import geopandas as gpd
 
-def run_command(cmd, hold):
+
+def run_command(command, hold=False):
+    """Run a command in the current terminal and propagate failures."""
     if hold:
-        subprocess.run(['xterm', '-hold', '-e', cmd])
-    else:
-        subprocess.run(['xterm', '-e', cmd])
+        raise ValueError("Interactive hold mode is not supported by the pipeline")
+    subprocess.run(command, check=True)
+
+
+def docker_command(config, *arguments):
+    runtime = config["runtime"]
+    command = shlex.split(str(runtime.get("docker_cmd", "docker")))
+    if not command:
+        raise ValueError("runtime.docker_cmd cannot be empty")
+    command.extend(["run", "--rm"])
+    for mount in runtime.get("mounts", []):
+        command.extend(["-v", str(mount)])
+    command.extend(
+        [
+            "-u",
+            f"{os.getuid()}:{os.getgid()}",
+            str(runtime["force_image"]),
+            *[str(item) for item in arguments],
+        ]
+    )
+    return command
 
 
 def generate_input_feature_line(tif_path, num_layers):
-    sequence = ' '.join(str(i) for i in range(1, num_layers + 1))
+    sequence = " ".join(str(i) for i in range(1, num_layers + 1))
     return f"INPUT_FEATURE = {tif_path} {sequence}"
 
 
 def replace_parameters(filename, replacements):
-    with open(filename, 'r') as f:
-        content = f.read()
-        for key, value in replacements.items():
-            content = content.replace(key, value)
-    with open(filename, 'w') as f:
-        f.write(content)
+    with open(filename, "r", encoding="utf-8") as stream:
+        content = stream.read()
+
+    for old_line, new_line in replacements.items():
+        tag = old_line.split("=", 1)[0].strip()
+        pattern = rf"^{re.escape(tag)}\s*=.*$"
+        content, count = re.subn(pattern, new_line, content, count=1, flags=re.MULTILINE)
+        if count != 1:
+            raise ValueError(f"Parameter {tag!r} was not found exactly once in {filename}")
+
+    with open(filename, "w", encoding="utf-8") as stream:
+        stream.write(content)
+
 
 def extract_coordinates(file_path):
-    with open(file_path, 'r') as f:
-        lines = f.readlines()
-    #Skip the first line
-    lines = lines[1:]
-    #Extract X and Y values
-    x_values = [int(line.split('_')[0][1:]) for line in lines]
-    y_values = [int(line.split('_')[1][1:]) for line in lines]
-    #Extract the desired values
-    x_str = f"{min(x_values)} {max(x_values)}"
-    y_str = f"{min(y_values)} {max(y_values)}"
+    with open(file_path, "r", encoding="utf-8") as stream:
+        lines = stream.readlines()[1:]
+    if not lines:
+        raise ValueError(f"FORCE did not return any tiles for the AOI: {file_path}")
+    x_values = [int(line.split("_")[0][1:]) for line in lines]
+    y_values = [int(line.split("_")[1][1:]) for line in lines]
+    return f"{min(x_values)} {max(x_values)}", f"{min(y_values)} {max(y_values)}"
 
-    return x_str, y_str
 
-def check_and_reproject_shapefile(shapefile_path, target_epsg=3035):
-    # Load the shapefile
+def check_and_reproject_shapefile(shapefile_path, output_directory, target_epsg=3035):
+    """Return an EPSG:3035 AOI without modifying the source dataset."""
+    shapefile_path = Path(shapefile_path).expanduser().resolve()
     gdf = gpd.read_file(shapefile_path)
-    # Check the current CRS of the shapefile
-    if gdf.crs.to_epsg() != target_epsg:
-        print("Reprojecting shapefile to EPSG: 3035")
-        # Reproject the shapefile
-        gdf = gdf.to_crs(epsg=target_epsg)
-        # Define the new file path
-        new_shapefile_path = shapefile_path.replace(".shp", "_3035.shp")
-        # Save the reprojected shapefile
-        gdf.to_file(new_shapefile_path, driver='ESRI Shapefile')
-        print(f"Shapefile reprojected and saved to {new_shapefile_path}")
-        return new_shapefile_path
-    else:
-        print("Shapefile is already in EPSG: 3035")
-        return shapefile_path
+    if gdf.crs is None:
+        raise ValueError(f"AOI has no coordinate reference system: {shapefile_path}")
+    if gdf.crs.to_epsg() == target_epsg:
+        print(f"Shapefile is already in EPSG:{target_epsg}")
+        return str(shapefile_path)
+
+    output_directory = Path(output_directory).resolve()
+    output_directory.mkdir(parents=True, exist_ok=True)
+    destination = output_directory / f"{shapefile_path.stem}_{target_epsg}.shp"
+    print(f"Reprojecting shapefile to EPSG:{target_epsg}: {destination}")
+    gdf.to_crs(epsg=target_epsg).to_file(destination, driver="ESRI Shapefile")
+    return str(destination)
 
 
-def execute_force(params_path, hold, local_dir, force_dir):
-    cmd = f'sudo docker run -v {local_dir} -v {force_dir} -u "$(id -u):$(id -g)" davidfrantz/force ' \
-          "force-higher-level " \
-          f"{params_path}"
-
-    run_command(cmd, hold)
+def execute_force(params_path, config):
+    run_command(docker_command(config, "force-higher-level", params_path))
 
 
 def force_process(config):
-
-    # define parameters
-    base_path = config["project"]["base_path"]
-    project_name = config["project"]["name"]
-    force_dir = config["force"]["force_dir"]
-    local_dir = config["force"]["local_dir"]
-    aois = config["aoi"]["files"]
+    process_folder = Path(config["runtime"]["process_folder"]).resolve()
+    project_name = config["job"]["project_name"]
+    force_ard_dir = config["runtime"]["force_ard_dir"]
+    aois = config["inputs"]["aois"]
     mode = config["processing"]["mode"].upper()
-    hold = config["processing"]["hold"]
-    execute = config["processing"]["execute"]
+    hold = bool(config["processing"].get("hold", False))
+    execute = bool(config["processing"]["execute"])
 
-    base_path_script = os.getcwd()
-    #base_path_script = os.path.dirname(os.path.abspath(__file__))
-    startzeit = time.time()
-    for aoi in aois:
-        print(f"FORCE PROCESSING FOR {aoi}")
+    source_root = Path(__file__).resolve().parents[1]
+    skeleton = source_root / "utils" / "skel"
+    cube_skeleton = skeleton / "force_cube_sceleton"
+    definition = cube_skeleton / "datacube-definition.prj"
+    project_temp = process_folder / "temp" / project_name
+    started = time.time()
 
-        basename = os.path.basename(aoi)
-        aoi = check_and_reproject_shapefile(aoi)
+    for aoi_setting in aois:
+        source_aoi = Path(aoi_setting).expanduser().resolve()
+        aoi_name = source_aoi.stem
+        print(f"FORCE PROCESSING FOR {source_aoi}")
 
-        ### get force extend
-        os.makedirs(f'{base_path}/process/temp/{project_name}/FORCE/{basename}', exist_ok=True)
+        aoi = check_and_reproject_shapefile(
+            source_aoi,
+            project_temp / "inputs" / aoi_name,
+        )
+        aoi_path = Path(aoi)
+        force_folder = project_temp / "FORCE" / aoi_name
+        mask_folder = process_folder / "temp" / "_mask" / project_name / aoi_name
+        tiles_folder = force_folder / "tiles_tss"
+        provenance_folder = force_folder / "provenance"
+        for folder in (force_folder, mask_folder, tiles_folder, provenance_folder):
+            folder.mkdir(parents=True, exist_ok=True)
+        for folder in (force_folder, mask_folder, tiles_folder):
+            shutil.copy(definition, folder / definition.name)
 
-        shutil.copy(f"{base_path_script}/utils/skel/force_cube_sceleton/datacube-definition.prj",f"{base_path}/process/temp/{project_name}/FORCE/{basename}/datacube-definition.prj")
+        tile_extent = force_folder / "tile_extent.txt"
+        run_command(
+            docker_command(
+                config,
+                "force-tile-extent",
+                aoi_path,
+                "-d",
+                cube_skeleton,
+                "-a",
+                tile_extent,
+            ),
+            hold,
+        )
 
-        cmd = f'sudo docker run -v {local_dir} -v {force_dir} -u "$(id -u):$(id -g)" davidfrantz/force:latest ' \
-               f'force-tile-extent {aoi} -d {base_path_script}/utils/skel/force_cube_sceleton -a {base_path}/process/temp/{project_name}/FORCE/{basename}/tile_extent.txt'
-
-        run_command(cmd, hold)
-
-        ### mask
-        os.makedirs(f"{base_path}/process/temp/_mask/{project_name}/{basename}", exist_ok=True)
-
-        shutil.copy(f"{base_path_script}/utils/skel/force_cube_sceleton/datacube-definition.prj",f"{base_path}/process/temp/_mask/{project_name}/{basename}/datacube-definition.prj")
-        cmd = f'sudo docker run -v {local_dir} -u "$(id -u):$(id -g)" davidfrantz/force:latest ' \
-              f"force-cube -o {base_path}/process/temp/_mask/{project_name}/{basename} " \
-              f"{aoi}"
-
-        run_command(cmd, hold)
-
-        ###mask mosaic
-        cmd = f'sudo docker run -v {local_dir} -u "$(id -u):$(id -g)" davidfrantz/force:latest ' \
-              f"force-mosaic {base_path}/process/temp/_mask/{project_name}/{basename}"
-
-        run_command(cmd, hold)
-
-        ###force parameters
-
-        os.makedirs(f"{base_path}/process/temp/{project_name}/FORCE/{basename}/provenance", exist_ok=True)
-        os.makedirs(f"{base_path}/process/temp/{project_name}/FORCE/{basename}/tiles_tss", exist_ok=True)
-
-        shutil.copy(f"{base_path_script}/utils/skel/force_cube_sceleton/datacube-definition.prj",f"{base_path}/process/temp/{project_name}/FORCE/{basename}/datacube-definition.prj")
-        shutil.copy(f"{base_path_script}/utils/skel/force_cube_sceleton/datacube-definition.prj",f"{base_path}/process/temp/{project_name}/FORCE/{basename}/tiles_tss/datacube-definition.prj")
+        run_command(
+            docker_command(config, "force-cube", "-o", mask_folder, aoi_path),
+            hold,
+        )
+        run_command(docker_command(config, "force-mosaic", mask_folder), hold)
 
         if mode == "UDF":
-            tsa_param = f"{base_path}/process/temp/{project_name}/FORCE/{basename}/tsa_UDF.prm"
+            tsa_param = force_folder / "tsa_UDF.prm"
             force_mode = "UDF"
-
-            shutil.copy(f"{base_path_script}/utils/skel/udf_pixel.py",
-                        f"{base_path}/process/temp/{project_name}/FORCE/{basename}/UDF_pixel.py")
+            shutil.copy(skeleton / "udf_pixel.py", force_folder / "UDF_pixel.py")
         else:
-            tsa_param = f"{base_path}/process/temp/{project_name}/FORCE/{basename}/tsa.prm"
+            tsa_param = force_folder / "tsa.prm"
             force_mode = "TSA"
 
-        param_cmd = (
-            f'sudo docker run -v {local_dir} -v {force_dir} -u "$(id -u):$(id -g)" '
-            f'davidfrantz/force:latest force-parameter {tsa_param} {force_mode}'
+        run_command(
+            docker_command(config, "force-parameter", tsa_param, force_mode),
+            hold,
         )
-        subprocess.run(['bash', '-lc', param_cmd], check=True)
 
-        X_TILE_RANGE, Y_TILE_RANGE = extract_coordinates(f"{base_path}/process/temp/{project_name}/FORCE/{basename}/tile_extent.txt")
-
-        # Define common replacements
+        x_tile_range, y_tile_range = extract_coordinates(tile_extent)
+        parameters = config["parameters"]
         replacements = {
-            # INPUT/OUTPUT DIRECTORIES
-            f'DIR_LOWER = NULL':f'DIR_LOWER = {force_dir.split(":")[0]}/C1/L2/ard',
-            f'DIR_HIGHER = NULL':f'DIR_HIGHER = {base_path}/process/temp/{project_name}/FORCE/{basename}/tiles_tss',
-            f'DIR_PROVENANCE = NULL':f'DIR_PROVENANCE = {base_path}/process/temp/{project_name}/FORCE/{basename}/provenance',
-            # MASKING
-            f'DIR_MASK = NULL':f'DIR_MASK = {base_path}/process/temp/_mask/{project_name}/{basename}',
-            f'BASE_MASK = NULL':f'BASE_MASK = {os.path.basename(aoi).replace(".shp",".tif")}',
-            # PROCESSING EXTENT AND RESOLUTION
-            f'X_TILE_RANGE = 0 0': f'X_TILE_RANGE = {X_TILE_RANGE}',
-            f'Y_TILE_RANGE = 0 0': f'Y_TILE_RANGE = {Y_TILE_RANGE}',
-            # COMPUTATIONAL PARAMETERS
-            f"STREAMING = TRUE" : f"STREAMING = {str(config['parameters']['STREAMING']).upper()}",
-            f"OUTPUT_SUBFOLDERS = FALSE": f"OUTPUT_SUBFOLDERS = {str(config['parameters']['OUTPUT_SUBFOLDERS']).upper()}",
-            f"CHUNK_SIZE = 0 0": f"CHUNK_SIZE = {config['parameters']['CHUNK_SIZE']}",
-            f"ABOVE_NOISE = 0": f"ABOVE_NOISE = {config['parameters']['ABOVE_NOISE']}",
-            f"BELOW_NOISE = 0": f"BELOW_NOISE = {config['parameters']['BELOW_NOISE']}",
-            f"NTHREAD_READ = 0": f"NTHREAD_READ = {config['parameters']['NTHREAD_READ']}",
-            f"NTHREAD_COMPUTE = 0": f"NTHREAD_COMPUTE = {config['parameters']['NTHREAD_COMPUTE']}",
-            f"NTHREAD_WRITE = 0": f"NTHREAD_WRITE = {config['parameters']['NTHREAD_WRITE']}",
-            # USER SPECIFIC
-            f"DATE_RANGE = 2010-01-01 2019-12-31": f"DATE_RANGE = {config['parameters']['DATE_RANGE']}",
-            f"DOY_RANGE = 1 365": f"DOY_RANGE = {config['parameters']['DOY_RANGE']}",
-            f"SENSORS = LND08 LND09 SEN2A SEN2B SEN2C": f"SENSORS = {config['parameters']['SENSORS']}",
-            f"TARGET_SENSOR = LNDLG": f"TARGET_SENSOR = {config['parameters']['TARGET_SENSOR']}",
-            f"SPECTRAL_ADJUST = FALSE": f"SPECTRAL_ADJUST = {str(config['parameters']['SPECTRAL_ADJUST']).upper()}",
-            f"RESOLUTION = 10": f"RESOLUTION = {config['parameters']['RESOLUTION']}",
-            f"INDEX = NDVI EVI NBR RED NIR": f"INDEX = {config['parameters']['INDEX']}",
+            "DIR_LOWER = NULL": f"DIR_LOWER = {force_ard_dir}",
+            "DIR_HIGHER = NULL": f"DIR_HIGHER = {tiles_folder}",
+            "DIR_PROVENANCE = NULL": f"DIR_PROVENANCE = {provenance_folder}",
+            "DIR_MASK = NULL": f"DIR_MASK = {mask_folder}",
+            "BASE_MASK = NULL": f"BASE_MASK = {aoi_path.stem}.tif",
+            "X_TILE_RANGE = 0 0": f"X_TILE_RANGE = {x_tile_range}",
+            "Y_TILE_RANGE = 0 0": f"Y_TILE_RANGE = {y_tile_range}",
+            "STREAMING = TRUE": f"STREAMING = {str(parameters['STREAMING']).upper()}",
+            "OUTPUT_SUBFOLDERS = FALSE": (
+                f"OUTPUT_SUBFOLDERS = {str(parameters['OUTPUT_SUBFOLDERS']).upper()}"
+            ),
+            "CHUNK_SIZE = 0 0": f"CHUNK_SIZE = {parameters['CHUNK_SIZE']}",
+            "ABOVE_NOISE = 0": f"ABOVE_NOISE = {parameters['ABOVE_NOISE']}",
+            "BELOW_NOISE = 0": f"BELOW_NOISE = {parameters['BELOW_NOISE']}",
+            "NTHREAD_READ = 0": f"NTHREAD_READ = {parameters['NTHREAD_READ']}",
+            "NTHREAD_COMPUTE = 0": f"NTHREAD_COMPUTE = {parameters['NTHREAD_COMPUTE']}",
+            "NTHREAD_WRITE = 0": f"NTHREAD_WRITE = {parameters['NTHREAD_WRITE']}",
+            "DATE_RANGE = 2010-01-01 2019-12-31": f"DATE_RANGE = {parameters['DATE_RANGE']}",
+            "DOY_RANGE = 1 365": f"DOY_RANGE = {parameters['DOY_RANGE']}",
+            "SENSORS = LND08 LND09 SEN2A SEN2B SEN2C": f"SENSORS = {parameters['SENSORS']}",
+            "TARGET_SENSOR = LNDLG": f"TARGET_SENSOR = {parameters['TARGET_SENSOR']}",
+            "SPECTRAL_ADJUST = FALSE": (
+                f"SPECTRAL_ADJUST = {str(parameters['SPECTRAL_ADJUST']).upper()}"
+            ),
+            "RESOLUTION = 10": f"RESOLUTION = {parameters['RESOLUTION']}",
         }
 
-        # Define UDF specific replacements
         if mode == "UDF":
-            replacements.update({
-                f"FILE_PYTHON = NULL": f"FILE_PYTHON = {config['parameters']['FILE_PYTHON']}",
-                f"OUTPUT_PYP = FALSE": f"OUTPUT_PYP = TRUE",
-            })
+            replacements.update(
+                {
+                    "FILE_PYTHON = NULL": f"FILE_PYTHON = {parameters['FILE_PYTHON']}",
+                    "PYTHON_TYPE = PIXEL": (
+                        f"PYTHON_TYPE = {parameters.get('PYTHON_TYPE', 'CHUNK').upper()}"
+                    ),
+                    "OUTPUT_PYP = FALSE": "OUTPUT_PYP = TRUE",
+                }
+            )
         else:
-            replacements.update({
-                f"OUTPUT_TSS = FALSE": f"OUTPUT_TSS = TRUE",
-            })
+            replacements.update(
+                {
+                    "INDEX = NDVI EVI NBR RED NIR": f"INDEX = {parameters['INDEX']}",
+                    "OUTPUT_TSS = FALSE": "OUTPUT_TSS = TRUE",
+                }
+            )
 
-        # Replace parameters in the parameter file
         replace_parameters(tsa_param, replacements)
-
         if execute:
-            execute_force(tsa_param, hold, local_dir, force_dir)
+            execute_force(tsa_param, config)
 
-    endzeit = time.time()
-    print("FORCE-Processing beendet nach "+str((endzeit-startzeit)/60)+" Minuten")
+    elapsed_minutes = (time.time() - started) / 60
+    print(f"FORCE processing completed after {elapsed_minutes} minutes")
