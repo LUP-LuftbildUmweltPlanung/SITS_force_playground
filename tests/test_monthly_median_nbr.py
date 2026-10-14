@@ -1,9 +1,11 @@
 from datetime import date
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 
 from utils.templates.monthly_median_nbr import (
+    _fill_internal_month_gaps,
     forcepy_chunk,
     forcepy_init,
     forcepy_pixel,
@@ -98,6 +100,44 @@ class MonthlyMedianNbrTest(unittest.TestCase):
         forcepy_chunk(inarray, outarray, dates, None, bandnames, NODATA, 1)
 
         self.assertEqual(outarray[:, 0, 0].tolist(), [NODATA, 600, 200] + [NODATA] * 9)
+
+    def test_interpolates_only_internal_month_gaps(self):
+        outarray = np.full((12, 1, 3), NODATA, dtype=np.int16)
+        # Pixel 0 has a one-month gap; pixel 1 has a two-month gap; pixel 2
+        # has no observation after March, so its trailing gap must remain.
+        outarray[2, 0] = [600, 600, 600]
+        outarray[4, 0, 0] = 200
+        outarray[5, 0, 1] = 0
+
+        _fill_internal_month_gaps(outarray, NODATA)
+
+        self.assertEqual(outarray[3, 0, 0], 400)
+        self.assertEqual(outarray[3:5, 0, 1].tolist(), [400, 200])
+        self.assertEqual(outarray[3:, 0, 2].tolist(), [NODATA] * 9)
+        self.assertEqual(outarray[:2, 0, 0].tolist(), [NODATA, NODATA])
+
+    def test_chunk_fills_screened_month_between_valid_months(self):
+        dates = np.array(
+            [_days("2025-01-10"), _days("2025-02-10"), _days("2025-03-10")]
+        )
+        bandnames = np.array([b"BROADNIR", b"SWIR2"])
+        inarray = np.array(
+            [
+                [[[8000]], [[2000]]],  # NBR = 0.6
+                [[[NODATA]], [[NODATA]]],
+                [[[6000]], [[4000]]],  # NBR = 0.2
+            ],
+            dtype=np.int16,
+        )
+        outarray = np.full((12, 1, 1), NODATA, dtype=np.int16)
+
+        with patch(
+            "utils.templates.monthly_median_nbr.FILL_INTERNAL_MONTH_GAPS", True
+        ):
+            forcepy_chunk(inarray, outarray, dates, None, bandnames, NODATA, 1)
+
+        self.assertEqual(outarray[:3, 0, 0].tolist(), [600, 400, 200])
+        self.assertEqual(outarray[3:, 0, 0].tolist(), [NODATA] * 9)
 
     def test_rejects_missing_required_band(self):
         dates = np.array([_days("2025-01-05")])

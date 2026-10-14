@@ -24,6 +24,11 @@ def docker_command(config, *arguments):
     command.extend(["run", "--rm"])
     for mount in runtime.get("mounts", []):
         command.extend(["-v", str(mount)])
+    if "FILL_INTERNAL_MONTH_GAPS" in config.get("parameters", {}):
+        fill_gaps = str(
+            config["parameters"]["FILL_INTERNAL_MONTH_GAPS"]
+        ).upper()
+        command.extend(["-e", f"FORCE_NBR_FILL_INTERNAL_GAPS={fill_gaps}"])
     command.extend(
         [
             "-u",

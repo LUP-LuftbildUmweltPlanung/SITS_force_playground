@@ -65,6 +65,10 @@ def normalize_config(config: dict, source_root: Path) -> dict:
             raise ValueError(f"UDF Python file does not exist: {udf_path}")
         parameters["FILE_PYTHON"] = str(udf_path)
 
+        fill_internal_gaps = parameters.get("FILL_INTERNAL_MONTH_GAPS", False)
+        if not isinstance(fill_internal_gaps, bool):
+            raise ValueError("parameters.FILL_INTERNAL_MONTH_GAPS must be true or false")
+
     return normalized
 
 

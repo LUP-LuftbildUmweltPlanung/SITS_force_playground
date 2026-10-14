@@ -1,7 +1,9 @@
 import unittest
+from unittest.mock import MagicMock, patch
 
 from utils.utils import (
-    build_delivery_output_name,
+    build_internal_overviews,
+    build_delivery_output_path,
     build_udf_output_name,
     validate_overview_options,
 )
@@ -28,14 +30,14 @@ class UdfOutputNamingTest(unittest.TestCase):
             "2020-2022_091-273_MY-INDEX_Q50-MONTHLY.tif",
         )
 
-    def test_canonical_delivery_name_is_a_direct_child(self):
+    def test_delivery_uses_original_aoi_directory_layout(self):
         aoi = "/data/aoi/germany.shp"
         force_name = "2018-2018_001-365_HL_UDF_SEN2L_PYP.tif"
         product = build_udf_output_name(force_name, "NBR", "median")
 
         self.assertEqual(
-            build_delivery_output_name(aoi, product),
-            "germany_2018-2018_001-365_NBR_MEDIAN.tif",
+            build_delivery_output_path("/results/nbr", aoi, product),
+            "/results/nbr/germany.shp/2018-2018_001-365_NBR_MEDIAN.tif",
         )
 
 
@@ -55,6 +57,23 @@ class OverviewOptionsTest(unittest.TestCase):
     def test_rejects_invalid_resampling(self):
         with self.assertRaisesRegex(ValueError, "overview_resampling"):
             validate_overview_options([2, 4], "not-a-method")
+
+    @patch("utils.utils.subprocess.run")
+    @patch("utils.utils.rasterio.open")
+    def test_accepts_effective_factor_for_rounded_overview_size(
+        self, rasterio_open, subprocess_run
+    ):
+        dataset = MagicMock()
+        dataset.width = 3000
+        dataset.count = 1
+        dataset.overviews.return_value = [2, 4, 8, 16, 32, 64, 125]
+        rasterio_open.return_value.__enter__.return_value = dataset
+
+        build_internal_overviews(
+            "one_tile.tif", [2, 4, 8, 16, 32, 64, 128], "average"
+        )
+
+        subprocess_run.assert_called_once()
 
 
 if __name__ == "__main__":

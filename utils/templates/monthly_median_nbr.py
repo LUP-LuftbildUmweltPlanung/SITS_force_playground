@@ -1,14 +1,18 @@
 """FORCE Python UDF for monthly median Normalized Burn Ratio (NBR).
 
 The UDF calculates NBR for every quality-screened acquisition, groups the
-observations by calendar month, and writes one Int16 band per month. Output
-values are scaled by 1000 to match the Earth Engine workflow this UDF replaces.
+observations by calendar month, and writes one Int16 band per month. When
+enabled by the pipeline, isolated monthly gaps bounded by valid months are
+linearly interpolated to prevent screened Sentinel swaths from becoming holes
+in the mosaic. Output values are scaled by 1000 to match the Earth Engine
+workflow this UDF replaces.
 
 The standalone FORCE UDF module supplies the complete BOA band stack. Sentinel-2
 B8 is named ``BROADNIR`` by FORCE; ``NIR`` is the narrow B8A band.
 """
 
 from datetime import date, timedelta
+import os
 import warnings
 
 import numpy as np
@@ -16,6 +20,9 @@ import numpy as np
 
 EPOCH = date(1970, 1, 1)
 OUTPUT_SCALE = 1000
+FILL_INTERNAL_MONTH_GAPS = (
+    os.environ.get("FORCE_NBR_FILL_INTERNAL_GAPS", "FALSE").upper() == "TRUE"
+)
 
 
 def _calendar_months(dates):
@@ -48,6 +55,57 @@ def _band_index(bandnames, expected_name):
             f"Required band {expected_name!r} is missing; got {decoded_names}. "
             "The UDF requires a full Sentinel-2 BOA input stack."
         ) from error
+
+
+def _fill_internal_month_gaps(outarray, nodata):
+    """Linearly interpolate monthly gaps bounded by valid observations.
+
+    Quality screening can remove every acquisition for part of a Sentinel
+    swath in one month.  Leaving those pixels as nodata creates conspicuous
+    diagonal holes in an otherwise valid monthly mosaic.  Fill only gaps that
+    have a valid monthly median on both sides in the same calendar year.  This
+    deliberately preserves leading, trailing, and all-year nodata regions.
+
+    ``forcepy_init`` emits twelve consecutive bands per year, so processing
+    independent twelve-band blocks also prevents interpolation across years.
+    """
+    band_count = outarray.shape[0]
+    if band_count % 12:
+        raise ValueError(
+            f"Expected a whole number of 12-month years, got {band_count} bands"
+        )
+
+    for year_start in range(0, band_count, 12):
+        year = outarray[year_start : year_start + 12]
+        valid = year != nodata
+
+        for month in range(1, 11):
+            missing = ~valid[month]
+            if not np.any(missing):
+                continue
+
+            left_month = np.full(missing.shape, -1, dtype=np.int8)
+            right_month = np.full(missing.shape, -1, dtype=np.int8)
+            for candidate in range(month - 1, -1, -1):
+                take = (left_month < 0) & valid[candidate]
+                left_month[take] = candidate
+            for candidate in range(month + 1, 12):
+                take = (right_month < 0) & valid[candidate]
+                right_month[take] = candidate
+
+            fill = missing & (left_month >= 0) & (right_month >= 0)
+            if not np.any(fill):
+                continue
+
+            rows, columns = np.nonzero(fill)
+            left = left_month[fill].astype(np.intp)
+            right = right_month[fill].astype(np.intp)
+            left_values = year[left, rows, columns].astype(np.float32)
+            right_values = year[right, rows, columns].astype(np.float32)
+            weight = (month - left) / (right - left)
+            interpolated = left_values + (right_values - left_values) * weight
+            year[month, rows, columns] = np.rint(interpolated).astype(year.dtype)
+            valid[month, rows, columns] = True
 
 
 def forcepy_init(dates, sensors, bandnames):
@@ -98,6 +156,11 @@ def forcepy_pixel(inarray, outarray, dates, sensors, bandnames, nodata, nproc):
         median = np.median(nbr[month_mask])
         # Earth Engine's multiply(1000).toInt16() truncates toward zero.
         outarray[output_index] = np.int16(np.trunc(median * OUTPUT_SCALE))
+
+    if FILL_INTERNAL_MONTH_GAPS:
+        # FORCE may screen every observation in an isolated month even though
+        # the same pixel is valid immediately before and after it.
+        _fill_internal_month_gaps(outarray.reshape((-1, 1, 1)), nodata)
 
 
 def forcepy_chunk(inarray, outarray, dates, sensors, bandnames, nodata, nproc):
@@ -175,3 +238,6 @@ def forcepy_chunk(inarray, outarray, dates, sensors, bandnames, nodata, nproc):
         median *= OUTPUT_SCALE
         np.trunc(median, out=median)
         outarray[output_index, valid_output] = median[valid_output].astype(np.int16)
+
+    if FILL_INTERNAL_MONTH_GAPS:
+        _fill_internal_month_gaps(outarray, nodata)

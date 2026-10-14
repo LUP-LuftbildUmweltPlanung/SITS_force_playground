@@ -1,5 +1,5 @@
 job:
-  project_name: nbr_germany_2018
+  project_name: nbr_germany_2024_final
 
 runtime:
   process_folder: /drive_mount/process
@@ -36,9 +36,9 @@ mosaic_output:
 inputs:
   aois:
     - /drive_mount/general_data/germany/2024_v1_0.shp
-
+    #- /drive_mount/general_data/germany/1tile_extent.shp
 parameters:
-  DATE_RANGE: 2018-01-01 2018-12-31 # Format: YYYY-MM-DD
+  DATE_RANGE: 2024-01-01 2024-12-31 # Format: YYYY-MM-DD
   DOY_RANGE: 1 365 # DOY range for filtering the time extent. Day-of-Years that are outside the given interval will be ignored.
   INDEX: NBR # Used in TSA mode; standalone UDF mode receives the full BOA stack
   METRIC: MEDIAN # Used to name the final UDF mosaic
@@ -49,9 +49,10 @@ parameters:
 
   FILE_PYTHON: utils/templates/monthly_median_nbr.py # Resolved against the selected source revision
   PYTHON_TYPE: CHUNK # Vectorized processing; much faster than one Python call per pixel
+  FILL_INTERNAL_MONTH_GAPS: true # Interpolate only gaps bounded by valid months in the same year
 
   # Advanced parameters
-  STREAMING: FALSE # for faster computation. However, this can cause error messages when working with UDFs
+  STREAMING: TRUE # for faster computation. However, this can cause error messages when working with UDFs
   OUTPUT_SUBFOLDERS: TRUE
   CHUNK_SIZE: 6000 6000 # 25 chunks per 30 km tile; reduce if memory is insufficient
   ABOVE_NOISE: 3

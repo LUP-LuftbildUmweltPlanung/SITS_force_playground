@@ -2,6 +2,7 @@ import os
 import re
 import subprocess
 import glob
+import math
 from collections import defaultdict
 import rasterio
 import yaml
@@ -89,7 +90,14 @@ def build_internal_overviews(filename, levels, resampling):
     )
 
     with rasterio.open(filename) as src:
-        expected_levels = list(levels)
+        # GDAL creates integer-sized overview rasters. For dimensions that are
+        # not divisible by the requested level, Rasterio reports the effective
+        # decimation factor after that rounding. Example: 3000 / ceil(3000 /
+        # 128) = 125, so a valid requested level 128 is reported as 125.
+        expected_levels = [
+            int(round(src.width / math.ceil(src.width / level)))
+            for level in levels
+        ]
         for band_index in range(1, src.count + 1):
             actual_levels = src.overviews(band_index)
             if actual_levels != expected_levels:
@@ -305,10 +313,9 @@ def build_udf_output_name(force_basename, index, metric):
     return f"{parts[0]}_{parts[1]}_{clean(index)}_{clean(metric)}{extension}"
 
 
-def build_delivery_output_name(aoi_path, product_name):
-    """Prefix a final product with a stable AOI identifier."""
-    aoi_name = os.path.splitext(os.path.basename(aoi_path))[0]
-    return f"{aoi_name}_{product_name}"
+def build_delivery_output_path(project_folder, aoi_path, product_name):
+    """Keep the product name inside the original AOI-named directory."""
+    return os.path.join(project_folder, os.path.basename(aoi_path), product_name)
 
 
 def mosaicing(config):
@@ -338,7 +345,6 @@ def mosaicing(config):
             mosaics[tif_name].append(f)
         # iterate over lists
         for mosaic_files in mosaics.values():
-            os.makedirs(proc_folder, exist_ok=True)
             base = os.path.basename(mosaic_files[0])
             if config['processing']['mode'].upper() == "UDF":
                 base = build_udf_output_name(
@@ -346,10 +352,8 @@ def mosaicing(config):
                     config['parameters']['INDEX'],
                     config['parameters'].get('METRIC', 'MEDIAN'),
                 )
-            output_filename = os.path.join(
-                proc_folder,
-                build_delivery_output_name(aoi, base),
-            )
+            output_filename = build_delivery_output_path(proc_folder, aoi, base)
+            os.makedirs(os.path.dirname(output_filename), exist_ok=True)
             mosaic_rasters(
                 mosaic_files,
                 output_filename,

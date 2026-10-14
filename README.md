@@ -50,6 +50,7 @@ parameters:
   FILE_PYTHON: /path/visible/inside/the/container/SITS_force_playground/utils/templates/monthly_median_nbr.py
   METRIC: MEDIAN
   PYTHON_TYPE: CHUNK
+  FILL_INTERNAL_MONTH_GAPS: false
   CHUNK_SIZE: 6000 6000
   NTHREAD_COMPUTE: 1
 ```
@@ -60,11 +61,12 @@ limit its inputs. The UDF uses FORCE's `BROADNIR` band (Sentinel-2 B8) and
 avoids invoking Python separately for every pixel.
 
 The final mosaic keeps FORCE's year and day-of-year ranges and is named with
-the AOI, configured index, and metric, for example
-`germany_2018-2018_001-365_NBR_MEDIAN.tif`. Final products are direct children
-of `runtime.process_folder/results/job.project_name`, which lets an orchestrator
-discover only delivery rasters. FORCE's intermediate tile retains its
-standard `..._HL_UDF_SEN2L_PYP.tif` name.
+the configured index and metric, for example
+`2018-2018_001-365_NBR_MEDIAN.tif`. It is stored in the original AOI-named
+subdirectory below `runtime.process_folder/results/job.project_name`, for
+example `nbr_germany_2018/germany.shp/2018-2018_001-365_NBR_MEDIAN.tif`.
+FORCE's intermediate tile retains its standard
+`..._HL_UDF_SEN2L_PYP.tif` name.
 
 The canonical automation entry point is `pipeline/run.py`. It accepts the same
 configuration envelope used by the Nextflow orchestrator:
@@ -98,13 +100,18 @@ appropriate for continuous NBR data and ignores the configured nodata value.
 Oblique nodata swaths can be real gaps in the monthly source coverage. FORCE
 quality-screens every acquisition before calling the UDF; if the available
 Sentinel-2 footprints do not overlap a pixel, or every overlapping observation
-is rejected by the quality mask, the monthly median must remain nodata. The UDF
-does not fill such gaps from another month because that would assign an NBR
-value to the wrong time period. Inspect `provenance/*.csv` and the corresponding
-`*_BOA.tif` and `*_QAI.tif` files in the lower-level FORCE cube to distinguish
-source-coverage gaps from processing failures. A wider temporal composite or
-an additional sensor can be used when complete coverage is more important than
-strict calendar-month semantics.
+is rejected by the quality mask, the strict monthly median remains nodata.
+Inspect `provenance/*.csv` and the corresponding `*_BOA.tif` and `*_QAI.tif`
+files in the lower-level FORCE cube to distinguish source-coverage gaps from
+processing failures.
+
+Set `parameters.FILL_INTERNAL_MONTH_GAPS: true` when complete visual coverage
+is more important than strict calendar-month semantics. The UDF then linearly
+interpolates only missing months that have a valid monthly median both before
+and after them in the same year. Leading, trailing, and all-year gaps remain
+nodata. The default is `false` because interpolated pixels are estimates rather
+than observations from the named month. A wider temporal composite or an
+additional sensor is another option when interpolation is not appropriate.
 
 ## Versioning
 This repository is based on the latest version of FORCE _**3.9.02-dev:::2025-10-16**_.
