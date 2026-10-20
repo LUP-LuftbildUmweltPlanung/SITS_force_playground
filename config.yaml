@@ -3,7 +3,7 @@ job:
 
 runtime:
   process_folder: /drive_mount/process
-  force_ard_dir: /force/C1/L2/ard
+  force_ard_dir: /drive_mount/datacube/C1/L2/ard
   force_image: davidfrantz/force:latest
   docker_cmd: docker
   mounts:
