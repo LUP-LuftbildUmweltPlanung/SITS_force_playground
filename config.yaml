@@ -1,11 +1,11 @@
 project:
   name: project_name
-  base_path: /uge_mount/Freddy/force_playground
+  base_path: /drive_mount/force_playground/
 
 force:
-  image: davidfrantz/force:latest
+  image: davidfrantz/force:3.10.04
   force_dir: /force:/force
-  local_dir: /uge_mount:/uge_mount
+  local_dir: /drive_mount:/drive_mount
 
 processing:
   mode: TSA # TSA or UDF. If UDF a FILE_PYTHON must be provided in parameters
@@ -15,7 +15,7 @@ processing:
 
 aoi:
   files:
-    - /uge_mount/Freddy/data/aoi/test.shp
+    - /drive_mount/change_harmonic/harmonic_data/test.shp
 
 parameters:
   DATE_RANGE: 2020-08-01 2020-08-31 # Format: YYYY-MM-DD
@@ -26,7 +26,7 @@ parameters:
   SPECTRAL_ADJUST: FALSE # TRUE if Sentinel and Landsat is used
   RESOLUTION: 10 # 30 if working with Landsat
 
-  FILE_PYTHON: /uge_mount/Freddy/force_playground/SITS_force_playground/utils/templates/median_2.py # Path to UDF. Only used if mode: UDF
+  FILE_PYTHON: /drive_mount/force_playground/SITS_force_playground/utils/templates/median_2.py # Path to UDF. Only used if mode: UDF
 
   # Advanced parameters
   STREAMING: TRUE # for faster computation. However, this can cause error messages when working with UDFs
