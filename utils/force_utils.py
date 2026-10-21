@@ -66,12 +66,12 @@ def execute_force(params_path, hold, local_dir, force_dir):
 
 
 def force_process(config):
-
     # define parameters
     base_path = config["project"]["base_path"]
     project_name = config["project"]["name"]
     force_dir = config["force"]["force_dir"]
     local_dir = config["force"]["local_dir"]
+    force_version = config["force"]["image"]
     aois = config["aoi"]["files"]
     mode = config["processing"]["mode"].upper()
     hold = config["processing"]["hold"]
@@ -80,18 +80,33 @@ def force_process(config):
     base_path_script = os.getcwd()
     #base_path_script = os.path.dirname(os.path.abspath(__file__))
     startzeit = time.time()
+
     for aoi in aois:
         print(f"FORCE PROCESSING FOR {aoi}")
 
         basename = os.path.basename(aoi)
         aoi = check_and_reproject_shapefile(aoi)
 
+        if mode == "UDF":
+            print(mode)
+            tsa_param = f"{base_path}/process/temp/{project_name}/FORCE/{basename}/tsa_UDF.prm"
+            force_mode = "UDF"
+        else:
+            tsa_param = f"{base_path}/process/temp/{project_name}/FORCE/{basename}/tsa.prm"
+            force_mode = "TSA"
+
+        if os.path.isfile(tsa_param):
+            print(f"Existing parameter file found: {tsa_param}")
+            if execute:
+                execute_force(tsa_param, hold, local_dir, force_dir)
+            continue
+
         ### get force extend
         os.makedirs(f'{base_path}/process/temp/{project_name}/FORCE/{basename}', exist_ok=True)
 
         shutil.copy(f"{base_path_script}/utils/skel/force_cube_sceleton/datacube-definition.prj",f"{base_path}/process/temp/{project_name}/FORCE/{basename}/datacube-definition.prj")
 
-        cmd = f'sudo docker run -v {local_dir} -v {force_dir} -u "$(id -u):$(id -g)" davidfrantz/force:latest ' \
+        cmd = f'sudo docker run -v {local_dir} -v {force_dir} -u "$(id -u):$(id -g)" {force_version} ' \
                f'force-tile-extent {aoi} -d {base_path_script}/utils/skel/force_cube_sceleton -a {base_path}/process/temp/{project_name}/FORCE/{basename}/tile_extent.txt'
 
         run_command(cmd, hold)
@@ -100,14 +115,14 @@ def force_process(config):
         os.makedirs(f"{base_path}/process/temp/_mask/{project_name}/{basename}", exist_ok=True)
 
         shutil.copy(f"{base_path_script}/utils/skel/force_cube_sceleton/datacube-definition.prj",f"{base_path}/process/temp/_mask/{project_name}/{basename}/datacube-definition.prj")
-        cmd = f'sudo docker run -v {local_dir} -u "$(id -u):$(id -g)" davidfrantz/force:latest ' \
+        cmd = f'sudo docker run -v {local_dir} -u "$(id -u):$(id -g)" {force_version} ' \
               f"force-cube -o {base_path}/process/temp/_mask/{project_name}/{basename} " \
               f"{aoi}"
 
         run_command(cmd, hold)
 
         ###mask mosaic
-        cmd = f'sudo docker run -v {local_dir} -u "$(id -u):$(id -g)" davidfrantz/force:latest ' \
+        cmd = f'sudo docker run -v {local_dir} -u "$(id -u):$(id -g)" {force_version} ' \
               f"force-mosaic {base_path}/process/temp/_mask/{project_name}/{basename}"
 
         run_command(cmd, hold)
@@ -121,18 +136,11 @@ def force_process(config):
         shutil.copy(f"{base_path_script}/utils/skel/force_cube_sceleton/datacube-definition.prj",f"{base_path}/process/temp/{project_name}/FORCE/{basename}/tiles_tss/datacube-definition.prj")
 
         if mode == "UDF":
-            tsa_param = f"{base_path}/process/temp/{project_name}/FORCE/{basename}/tsa_UDF.prm"
-            force_mode = "UDF"
-
-            shutil.copy(f"{base_path_script}/utils/skel/udf_pixel.py",
-                        f"{base_path}/process/temp/{project_name}/FORCE/{basename}/UDF_pixel.py")
-        else:
-            tsa_param = f"{base_path}/process/temp/{project_name}/FORCE/{basename}/tsa.prm"
-            force_mode = "TSA"
+            shutil.copy(f"{base_path_script}/utils/skel/udf_pixel.py",f"{base_path}/process/temp/{project_name}/FORCE/{basename}/UDF_pixel.py")
 
         param_cmd = (
             f'sudo docker run -v {local_dir} -v {force_dir} -u "$(id -u):$(id -g)" '
-            f'davidfrantz/force:latest force-parameter {tsa_param} {force_mode}'
+            f'{force_version} force-parameter {tsa_param} {force_mode}'
         )
         subprocess.run(['bash', '-lc', param_cmd], check=True)
 
