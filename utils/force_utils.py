@@ -57,8 +57,8 @@ def check_and_reproject_shapefile(shapefile_path, target_epsg=3035):
         return shapefile_path
 
 
-def execute_force(params_path, hold, local_dir, force_dir):
-    cmd = f'sudo docker run -v {local_dir} -v {force_dir} -u "$(id -u):$(id -g)" davidfrantz/force ' \
+def execute_force(params_path, hold, local_dir, force_dir, force_version):
+    cmd = f'sudo docker run -v {local_dir} -v {force_dir} -u "$(id -u):$(id -g)" {force_version} ' \
           "force-higher-level " \
           f"{params_path}"
 
@@ -98,7 +98,7 @@ def force_process(config):
         if os.path.isfile(tsa_param):
             print(f"Existing parameter file found: {tsa_param}")
             if execute:
-                execute_force(tsa_param, hold, local_dir, force_dir)
+                execute_force(tsa_param, hold, local_dir, force_dir, force_version)
             continue
 
         ### get force extend
@@ -192,7 +192,7 @@ def force_process(config):
         replace_parameters(tsa_param, replacements)
 
         if execute:
-            execute_force(tsa_param, hold, local_dir, force_dir)
+            execute_force(tsa_param, hold, local_dir, force_dir, force_version)
 
     endzeit = time.time()
     print("FORCE-Processing beendet nach "+str((endzeit-startzeit)/60)+" Minuten")

@@ -1,4 +1,5 @@
 import os
+import shutil
 import subprocess
 import glob
 from collections import defaultdict
@@ -33,45 +34,70 @@ def create_folder_structure(base_path):
 
 
 def mosaic_rasters(input_files, output_filename):
-    vrt_path = output_filename.replace(".tif", "_tmp.vrt")
+    tmp_dir = output_filename.replace(".tif", "_tmp")
+    os.makedirs(tmp_dir, exist_ok=True)
 
-    # read band descriptions from source files
-    band_descriptions = []
-
+    # Date (band description) → list of (file, band index)
+    date_bands = defaultdict(list)
     for f in input_files:
         with rasterio.open(f) as src:
-            for desc in src.descriptions:
-                band_descriptions.append(desc if desc else os.path.basename(f))
+            for idx, desc in enumerate(src.descriptions, start=1):
+                if not desc:
+                    raise ValueError(f"Band {idx} in {f} hat keine Beschreibung")
+                date_bands[desc].append((f, idx))
 
-    # Built VRT
+    dates = sorted(date_bands)  # chronological, when format equals YYYYMMDD
+
+    # for every date: singleband-VRTs -> mosaic-VRT
+    date_vrts = []
+    for desc in dates:
+        single_vrts = []
+        for n, (f, idx) in enumerate(date_bands[desc]):
+            v = f"{tmp_dir}/{desc}_{n}.vrt"
+            subprocess.run(["gdal_translate", "-of", "VRT", "-b", str(idx), f, v], check=True)
+            single_vrts.append(v)
+        date_vrt = f"{tmp_dir}/{desc}.vrt"
+        subprocess.run([
+            "gdalbuildvrt",
+            "-srcnodata", "-9999",
+            "-vrtnodata", "-9999",
+            "-overwrite",
+            date_vrt,
+            *single_vrts
+        ], check=True)
+        date_vrts.append(date_vrt)
+
+    # stack all date-mosaics as bands (extent = union, fill gaps with nodata)
+    stack_vrt = f"{tmp_dir}/stack.vrt"
     subprocess.run([
         "gdalbuildvrt",
+        "-separate",
         "-srcnodata", "-9999",
         "-vrtnodata", "-9999",
         "-overwrite",
-        vrt_path,
-        *input_files
+        stack_vrt,
+        *date_vrts
     ], check=True)
 
-    # Stream VRT to GeoTiff
+    # write GeoTiff
     subprocess.run([
         "gdal_translate",
-        "-of",  "GTiff",
-        "-co",  "COMPRESS=LZW",
-        "-co",  "TILED=YES",
-        "-co",  "BLOCKXSIZE=512",
-        "-co",  "BLOCKYSIZE=512",
-        "-co",  "BIGTIFF=IF_SAFER",
+        "-of", "GTiff",
+        "-co", "COMPRESS=LZW",
+        "-co", "TILED=YES",
+        "-co", "BLOCKXSIZE=512",
+        "-co", "BLOCKYSIZE=512",
+        "-co", "BIGTIFF=IF_SAFER",
         "-co", "NUM_THREADS=ALL_CPUS",
-        vrt_path,
+        stack_vrt,
         output_filename
     ], check=True)
 
-    os.remove(vrt_path)
+    shutil.rmtree(tmp_dir)
 
-    # Set band descriptions
+    # set band description
     with rasterio.open(output_filename, "r+") as dst:
-        for i, desc in enumerate(band_descriptions, start=1):
+        for i, desc in enumerate(dates, start=1):
             dst.set_band_description(i, desc)
 
 
